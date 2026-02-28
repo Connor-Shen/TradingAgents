@@ -122,6 +122,44 @@ def select_research_depth() -> int:
     return choice
 
 
+def select_fixed_teams() -> List[str]:
+    """Select optional fixed teams for ablation experiments.
+
+    Returns:
+        List of selected fixed team keys:
+        - research
+        - trading
+        - risk
+        - portfolio
+    """
+    team_choices = [
+        questionary.Choice("Research Team", value="research", checked=True),
+        questionary.Choice("Trading Team", value="trading", checked=True),
+        questionary.Choice("Risk Management", value="risk", checked=True),
+        questionary.Choice("Portfolio Management", value="portfolio", checked=True),
+    ]
+
+    choices = questionary.checkbox(
+        "Select Fixed Teams (uncheck for ablation):",
+        choices=team_choices,
+        instruction="\n- Press Space to enable/disable teams\n- Press Enter when done",
+        style=questionary.Style(
+            [
+                ("checkbox-selected", "fg:yellow"),
+                ("selected", "fg:yellow noinherit"),
+                ("highlighted", "noinherit"),
+                ("pointer", "noinherit"),
+            ]
+        ),
+    ).ask()
+
+    if choices is None:
+        console.print("\n[red]No fixed team selection provided. Exiting...[/red]")
+        exit(1)
+
+    return choices
+
+
 def select_shallow_thinking_agent(provider) -> str:
     """Select shallow thinking llm engine using an interactive selection."""
 

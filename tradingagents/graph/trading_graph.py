@@ -49,6 +49,7 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        enabled_fixed_teams: Optional[List[str]] = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -57,10 +58,17 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            enabled_fixed_teams: Optional fixed team keys to execute
+                (research, trading, risk, portfolio). If None, uses config/default.
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        self.enabled_fixed_teams = (
+            enabled_fixed_teams
+            if enabled_fixed_teams is not None
+            else self.config.get("enabled_fixed_teams")
+        )
 
         # Update the interface's config
         set_config(self.config)
@@ -128,7 +136,10 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph
-        self.graph = self.graph_setup.setup_graph(selected_analysts)
+        self.graph = self.graph_setup.setup_graph(
+            selected_analysts,
+            enabled_fixed_teams=self.enabled_fixed_teams,
+        )
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -139,6 +150,26 @@ class TradingAgentsGraph:
             thinking_level = self.config.get("google_thinking_level")
             if thinking_level:
                 kwargs["thinking_level"] = thinking_level
+            if self.config.get("google_use_vertexai") is not None:
+                kwargs["use_vertexai"] = self.config.get("google_use_vertexai")
+            if self.config.get("google_cloud_project"):
+                kwargs["google_cloud_project"] = self.config.get("google_cloud_project")
+            if self.config.get("google_cloud_location"):
+                kwargs["google_cloud_location"] = self.config.get("google_cloud_location")
+            if self.config.get("google_network_max_retries") is not None:
+                kwargs["network_max_retries"] = self.config.get("google_network_max_retries")
+            if self.config.get("google_network_retry_base_delay") is not None:
+                kwargs["network_retry_base_delay"] = self.config.get(
+                    "google_network_retry_base_delay"
+                )
+            if self.config.get("google_network_retry_max_delay") is not None:
+                kwargs["network_retry_max_delay"] = self.config.get(
+                    "google_network_retry_max_delay"
+                )
+            if self.config.get("google_network_retry_jitter") is not None:
+                kwargs["network_retry_jitter"] = self.config.get(
+                    "google_network_retry_jitter"
+                )
 
         elif provider == "openai":
             reasoning_effort = self.config.get("openai_reasoning_effort")
@@ -216,38 +247,40 @@ class TradingAgentsGraph:
         self._log_state(trade_date, final_state)
 
         # Return decision and processed signal
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        final_trade_decision = final_state.get(
+            "final_trade_decision", "FINAL TRANSACTION PROPOSAL: **HOLD**"
+        )
+        return final_state, self.process_signal(final_trade_decision)
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
+        investment_debate_state = final_state.get("investment_debate_state", {})
+        risk_debate_state = final_state.get("risk_debate_state", {})
+
         self.log_states_dict[str(trade_date)] = {
-            "company_of_interest": final_state["company_of_interest"],
-            "trade_date": final_state["trade_date"],
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
+            "company_of_interest": final_state.get("company_of_interest"),
+            "trade_date": final_state.get("trade_date"),
+            "market_report": final_state.get("market_report", ""),
+            "sentiment_report": final_state.get("sentiment_report", ""),
+            "news_report": final_state.get("news_report", ""),
+            "fundamentals_report": final_state.get("fundamentals_report", ""),
             "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"]["bull_history"],
-                "bear_history": final_state["investment_debate_state"]["bear_history"],
-                "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
-                    "current_response"
-                ],
-                "judge_decision": final_state["investment_debate_state"][
-                    "judge_decision"
-                ],
+                "bull_history": investment_debate_state.get("bull_history", ""),
+                "bear_history": investment_debate_state.get("bear_history", ""),
+                "history": investment_debate_state.get("history", ""),
+                "current_response": investment_debate_state.get("current_response", ""),
+                "judge_decision": investment_debate_state.get("judge_decision", ""),
             },
-            "trader_investment_decision": final_state["trader_investment_plan"],
+            "trader_investment_decision": final_state.get("trader_investment_plan", ""),
             "risk_debate_state": {
-                "aggressive_history": final_state["risk_debate_state"]["aggressive_history"],
-                "conservative_history": final_state["risk_debate_state"]["conservative_history"],
-                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
-                "history": final_state["risk_debate_state"]["history"],
-                "judge_decision": final_state["risk_debate_state"]["judge_decision"],
+                "aggressive_history": risk_debate_state.get("aggressive_history", ""),
+                "conservative_history": risk_debate_state.get("conservative_history", ""),
+                "neutral_history": risk_debate_state.get("neutral_history", ""),
+                "history": risk_debate_state.get("history", ""),
+                "judge_decision": risk_debate_state.get("judge_decision", ""),
             },
-            "investment_plan": final_state["investment_plan"],
-            "final_trade_decision": final_state["final_trade_decision"],
+            "investment_plan": final_state.get("investment_plan", ""),
+            "final_trade_decision": final_state.get("final_trade_decision", ""),
         }
 
         # Save to file

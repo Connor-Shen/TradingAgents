@@ -14,11 +14,22 @@ DEFAULT_CONFIG = {
     "backend_url": "https://api.openai.com/v1",
     # Provider-specific thinking configuration
     "google_thinking_level": None,      # "high", "minimal", etc.
+    # Vertex AI settings (None means read from environment variables)
+    "google_use_vertexai": None,        # True/False/None
+    "google_cloud_project": None,       # e.g. "my-gcp-project"
+    "google_cloud_location": None,      # e.g. "us-central1"
+    # Extra network robustness on top of SDK retries
+    "google_network_max_retries": None,         # int, default from env or 4
+    "google_network_retry_base_delay": None,    # float seconds, default 1.0
+    "google_network_retry_max_delay": None,     # float seconds, default 12.0
+    "google_network_retry_jitter": None,        # float seconds, default 0.5
     "openai_reasoning_effort": None,    # "medium", "high", "low"
     # Debate and discussion settings
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # Optional fixed team execution switches (for ablation)
+    "enabled_fixed_teams": ["research", "trading", "risk", "portfolio"],
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {

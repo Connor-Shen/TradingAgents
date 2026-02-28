@@ -41,12 +41,18 @@ app = typer.Typer(
 
 # Create a deque to store recent messages with a maximum length
 class MessageBuffer:
-    # Fixed teams that always run (not user-selectable)
+    # Optional fixed teams (can be toggled for ablation)
     FIXED_AGENTS = {
         "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
         "Trading Team": ["Trader"],
         "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
         "Portfolio Management": ["Portfolio Manager"],
+    }
+    FIXED_TEAM_LABELS = {
+        "research": "Research Team",
+        "trading": "Trading Team",
+        "risk": "Risk Management",
+        "portfolio": "Portfolio Management",
     }
 
     # Analyst name mapping
@@ -79,15 +85,21 @@ class MessageBuffer:
         self.current_agent = None
         self.report_sections = {}
         self.selected_analysts = []
+        self.selected_fixed_teams = set(self.FIXED_TEAM_LABELS.keys())
         self._last_message_id = None
 
-    def init_for_analysis(self, selected_analysts):
+    def init_for_analysis(self, selected_analysts, selected_fixed_teams=None):
         """Initialize agent status and report sections based on selected analysts.
 
         Args:
             selected_analysts: List of analyst type strings (e.g., ["market", "news"])
+            selected_fixed_teams: Optional list of fixed team keys
         """
         self.selected_analysts = [a.lower() for a in selected_analysts]
+        if selected_fixed_teams is None:
+            self.selected_fixed_teams = set(self.FIXED_TEAM_LABELS.keys())
+        else:
+            self.selected_fixed_teams = {t.lower() for t in selected_fixed_teams}
 
         # Build agent_status dynamically
         self.agent_status = {}
@@ -97,9 +109,12 @@ class MessageBuffer:
             if analyst_key in self.ANALYST_MAPPING:
                 self.agent_status[self.ANALYST_MAPPING[analyst_key]] = "pending"
 
-        # Add fixed teams
-        for team_agents in self.FIXED_AGENTS.values():
-            for agent in team_agents:
+        # Add selected fixed teams
+        for team_key in self.selected_fixed_teams:
+            team_label = self.FIXED_TEAM_LABELS.get(team_key)
+            if not team_label:
+                continue
+            for agent in self.FIXED_AGENTS.get(team_label, []):
                 self.agent_status[agent] = "pending"
 
         # Build report_sections dynamically
@@ -132,7 +147,10 @@ class MessageBuffer:
             _, finalizing_agent = self.REPORT_SECTIONS[section]
             # Report is complete if it has content AND its finalizing agent is done
             has_content = self.report_sections.get(section) is not None
-            agent_done = self.agent_status.get(finalizing_agent) == "completed"
+            agent_done = (
+                finalizing_agent not in self.agent_status
+                or self.agent_status.get(finalizing_agent) == "completed"
+            )
             if has_content and agent_done:
                 count += 1
         return count
@@ -287,11 +305,12 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
             "News Analyst",
             "Fundamentals Analyst",
         ],
-        "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
-        "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
-        "Portfolio Management": ["Portfolio Manager"],
     }
+    for team_key in message_buffer.selected_fixed_teams:
+        team_label = MessageBuffer.FIXED_TEAM_LABELS.get(team_key)
+        if not team_label:
+            continue
+        all_teams[team_label] = MessageBuffer.FIXED_AGENTS.get(team_label, [])
 
     # Filter teams to only include agents that are in agent_status
     teams = {}
@@ -528,32 +547,48 @@ def get_user_selections():
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
 
-    # Step 4: Research depth
+    # Step 4: Fixed teams (ablation)
     console.print(
         create_question_box(
-            "Step 4: Research Depth", "Select your research depth level"
+            "Step 4: Fixed Teams",
+            "Select fixed teams to run (uncheck to disable for ablation)"
+        )
+    )
+    selected_fixed_teams = select_fixed_teams()
+    fixed_team_labels = [
+        MessageBuffer.FIXED_TEAM_LABELS.get(team, team) for team in selected_fixed_teams
+    ]
+    console.print(
+        f"[green]Selected fixed teams:[/green] "
+        f"{', '.join(fixed_team_labels) if fixed_team_labels else 'None'}"
+    )
+
+    # Step 5: Research depth
+    console.print(
+        create_question_box(
+            "Step 5: Research Depth", "Select your research depth level"
         )
     )
     selected_research_depth = select_research_depth()
 
-    # Step 5: OpenAI backend
+    # Step 6: OpenAI backend
     console.print(
         create_question_box(
-            "Step 5: OpenAI backend", "Select which service to talk to"
+            "Step 6: OpenAI backend", "Select which service to talk to"
         )
     )
     selected_llm_provider, backend_url = select_llm_provider()
     
-    # Step 6: Thinking agents
+    # Step 7: Thinking agents
     console.print(
         create_question_box(
-            "Step 6: Thinking Agents", "Select your thinking agents for analysis"
+            "Step 7: Thinking Agents", "Select your thinking agents for analysis"
         )
     )
     selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
     selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
 
-    # Step 7: Provider-specific thinking configuration
+    # Step 8: Provider-specific thinking configuration
     thinking_level = None
     reasoning_effort = None
 
@@ -561,7 +596,7 @@ def get_user_selections():
     if provider_lower == "google":
         console.print(
             create_question_box(
-                "Step 7: Thinking Mode",
+                "Step 8: Thinking Mode",
                 "Configure Gemini thinking mode"
             )
         )
@@ -569,7 +604,7 @@ def get_user_selections():
     elif provider_lower == "openai":
         console.print(
             create_question_box(
-                "Step 7: Reasoning Effort",
+                "Step 8: Reasoning Effort",
                 "Configure OpenAI reasoning effort level"
             )
         )
@@ -579,6 +614,7 @@ def get_user_selections():
         "ticker": selected_ticker,
         "analysis_date": analysis_date,
         "analysts": selected_analysts,
+        "fixed_teams": selected_fixed_teams,
         "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
@@ -908,6 +944,7 @@ def run_analysis():
     config["deep_think_llm"] = selections["deep_thinker"]
     config["backend_url"] = selections["backend_url"]
     config["llm_provider"] = selections["llm_provider"].lower()
+    config["enabled_fixed_teams"] = selections.get("fixed_teams", [])
     # Provider-specific thinking configuration
     config["google_thinking_level"] = selections.get("google_thinking_level")
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
@@ -925,10 +962,14 @@ def run_analysis():
         config=config,
         debug=True,
         callbacks=[stats_handler],
+        enabled_fixed_teams=selections.get("fixed_teams", []),
     )
 
     # Initialize message buffer with selected analysts
-    message_buffer.init_for_analysis(selected_analyst_keys)
+    message_buffer.init_for_analysis(
+        selected_analyst_keys,
+        selections.get("fixed_teams", []),
+    )
 
     # Track start time for elapsed display
     start_time = time.time()
@@ -995,6 +1036,15 @@ def run_analysis():
         message_buffer.add_message(
             "System",
             f"Selected analysts: {', '.join(analyst.value for analyst in selections['analysts'])}",
+        )
+        fixed_team_labels = [
+            MessageBuffer.FIXED_TEAM_LABELS.get(team, team)
+            for team in selections.get("fixed_teams", [])
+        ]
+        message_buffer.add_message(
+            "System",
+            "Selected fixed teams: "
+            + (", ".join(fixed_team_labels) if fixed_team_labels else "None"),
         )
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
@@ -1124,7 +1174,10 @@ def run_analysis():
 
         # Get final state and decision
         final_state = trace[-1]
-        decision = graph.process_signal(final_state["final_trade_decision"])
+        final_trade_decision = final_state.get(
+            "final_trade_decision", "FINAL TRANSACTION PROPOSAL: **HOLD**"
+        )
+        decision = graph.process_signal(final_trade_decision)
 
         # Update all agent statuses to completed
         for agent in message_buffer.agent_status:

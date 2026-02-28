@@ -129,6 +129,15 @@ export OPENROUTER_API_KEY=...      # OpenRouter
 export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
 ```
 
+For Gemini via Vertex AI, set:
+```bash
+export GOOGLE_GENAI_USE_VERTEXAI=true
+export GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+export GOOGLE_CLOUD_LOCATION=us-central1
+# and authenticate once:
+gcloud auth application-default login
+```
+
 For local models, configure Ollama with `llm_provider: "ollama"` in your config.
 
 Alternatively, copy `.env.example` to `.env` and fill in your keys:
